@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing
+from threading import Lock
 import phpypam
 import ipaddress
 import dns.resolver
@@ -8,15 +10,13 @@ import sys
 import socket
 import platform    # For getting the operating system name
 import subprocess  # For executing a shell command
-
 import yaml
 
-configfile='scanagent-conf.yaml'
 try:
-    with open(configfile) as f:
+    with open('scanagent-conf.yaml') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 except:
-    print('Could not load config file',configfile)
+    print('failed loading config file')
     sys.exit(1)
 
 pi = phpypam.api(
@@ -26,7 +26,20 @@ pi = phpypam.api(
     password=config['password'],
     ssl_verify=config['ssl_verify']
 )
-maxthreads=config['maxthreads']
+
+if config['ssl_verify'] == False:
+    from urllib3.exceptions import InsecureRequestWarning
+    from urllib3 import disable_warnings
+    disable_warnings(InsecureRequestWarning)
+
+try:
+    maxthreads=config['maxthreads']
+except:
+    try:
+        maxthreads=multiprocessing.cpu_count()
+    except:
+        maxthreads=2
+        pass
 
 def ping(host):
     # Option for the number of packets as a function of
@@ -68,11 +81,16 @@ def update_host(host):
         hostid=None
         pass
 
+    try:
+        hostname=rlookup(host)
+    except:
+        hostname=''
+
     if hostid:
         #update host
         hostdata = {
             'id': hostid,
-            'hostname': rlookup(host),
+            'hostname': hostname,
             'tag':2,
         }
         try:
@@ -84,7 +102,7 @@ def update_host(host):
     else:
         #create new host
         hostdata = {
-            'hostname': rlookup(host),
+            'hostname': hostname,
             'ip': host,
             'subnetId': subnetid,
             'tag':2,
@@ -129,6 +147,12 @@ def scan(host):
         # print('host is offline',host)
         return False
 
+def progress(future):
+    global lock,tasks_total,tasks_completed
+    with lock:
+        tasks_completed+=1
+        print('\r',tasks_completed,'/',tasks_total,end=' IPs scanned')
+
 if __name__ == '__main__':
     try:
         scanlist = sys.argv[1:]
@@ -136,12 +160,22 @@ if __name__ == '__main__':
         print('failed getting scanlist:',e)
         sys.exit(1)
 
+    lock=Lock()
+    tasks_total=0
+    tasks_completed=0
     with ThreadPoolExecutor(max_workers=maxthreads) as pool:
+        # print('Starting scanagent with',maxthreads,'threads')
         count = 0
+        tasks=[]
+        print('Scan targets:'," ".join(scanlist))
         for net in scanlist:
-            iplist=[str(ip) for ip in ipaddress.IPv4Network(net)]
-            print('Scanning network:',net)
-            for ip in iplist:
-                pool.submit(scan, ip)
-                count += 1
-    print('updated',count,'hosts')
+            if ':' in net:
+                iplist=[str(ip) for ip in ipaddress.IPv6Network(net)]
+            else:
+                iplist=[str(ip) for ip in ipaddress.IPv4Network(net)]
+            tasks_total+=len(iplist)
+            tasks += [pool.submit(scan, host) for host in iplist]
+        for task in tasks:
+            task.add_done_callback(progress)
+    print('\nScan complete')
+
