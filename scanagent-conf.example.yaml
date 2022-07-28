@@ -1,0 +1,14 @@
+#phpipam connection
+ipam_url: https://phpipam.example.com
+app_id: pyagent
+username: apiuser
+password: 1234567890qwertyuiop
+
+# set to False if using self-signed certs
+ssl_verify: True
+
+# Max number of IP and port scans to run simultaneously
+maxthreads: 10
+
+# Which ports to check if ICMP is blocked
+scanports: [22,80,443,139,445]
