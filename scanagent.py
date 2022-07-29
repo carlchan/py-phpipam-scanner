@@ -6,6 +6,7 @@ from threading import Lock
 import phpypam
 import ipaddress
 import dns.resolver
+from datetime import datetime
 import sys
 import socket
 import platform    # For getting the operating system name
@@ -91,6 +92,7 @@ def update_host(host):
         hostdata = {
             'id': hostid,
             'hostname': hostname,
+            'lastSeen': datetime.now(),
             'tag':2,
         }
         try:
@@ -105,6 +107,7 @@ def update_host(host):
             'hostname': hostname,
             'ip': host,
             'subnetId': subnetid,
+            'lastSeen': datetime.now(),
             'tag':2,
         }
         try:
